@@ -5,6 +5,8 @@
 #include <iostream>
 #include <string>
 
+#include "SBox.cpp"
+
 // Define this macro to enable error messages, comment it to disable error messages
 #define show_err
 
@@ -135,7 +137,41 @@ void keyGeneration(uint64_t* keys);
  * The function performs the left shift and rotate operation on a 32-bit integer.
  * The number of bits to shift and rotate is determined by the round number.
  */
-uint32_t leftShiftRotate(uint32_t value, int round);
+inline uint32_t leftShiftRotate(uint32_t value, int round);
+
+/**
+ * @brief Perform the DES algorithm on a 64-bit block using the 16 generated keys.
+ *
+ * @param block 64-bit block to perform the DES algorithm on.
+ * @param keys Array of 16 64-bit integers (keys are only 48-bit int) to use in the DES algorithm.
+ * @return 64-bit block after performing the DES algorithm.
+ *
+ * The function performs the DES algorithm on a 64-bit block using the 16 generated keys.
+ * It returns the 64-bit block after performing the DES algorithm.
+ * @note If in decryption mode, the keys are already in reversed order from the generation function.
+ */
+uint64_t DES(const uint64_t& block, uint64_t* keys);
+
+/**
+ * @brief Perform a single round of the DES algorithm on a 64-bit block using a 48-bit key.
+ *
+ * @param block 64-bit block to perform a single round of the DES algorithm on.
+ * @param key 48-bit key to use in the DES algorithm.
+ * @return 64-bit block after performing a single round of the DES algorithm.
+ *
+ * The function performs a single round of the DES algorithm on a 64-bit block using a 48-bit key.
+ * It returns the 64-bit block after performing a single round of the DES algorithm.
+ */
+uint64_t DES_round(const uint64_t& block, const uint64_t& key);
+
+/**
+ * @brief Swap the least 32 bits with the most 32 bits of a 64-bit integer.
+ *
+ * @param block 64-bit integer to swap its 32 bits.
+ * @note The function modifies the block in place.
+ * @note The function is used to swap the 32 bits of the block after the 16 rounds of the DES algorithm.
+ */
+inline void swap32Bit(uint64_t& block);
 
 int main(int argc, char* argv[]) {
     // Check if the arguments are valid
@@ -151,14 +187,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Perform the encryption or decryption
-    cout << hex << std::setw(16) << std::setfill('0') << key << endl;
-    cout << endl;
-    uint64_t keys[16];
-    keyGeneration(keys);
-    // print each 64 bit key in hex
-    for (int i = 0; i < 16; i++) {
-        cout << hex << std::setw(16) << std::setfill('0') << keys[i] << endl;
-    }
+    processData();
 
     // Write the output file
     if (!writeOutputFile()) {
@@ -330,7 +359,17 @@ bool isLittleEndian() {
 
 void processData() {
     // keys generation
-    uint64_t keys[16];  // each key is a 56 bit
+    uint64_t keys[16];  // each key is a 48 bit ater permutation choice 2
+
+    // apply DES algorithm into each block
+    size_t num_blocks = file_size / 8;
+    for (size_t i = 0; i < num_blocks; i++) {
+        if (is_encrypt) {
+            ciphertext[i] = DES(plaintext[i], keys);
+        } else {
+            plaintext[i] = DES(ciphertext[i], keys);
+        }
+    }
 }
 
 void keyGeneration(uint64_t* keys) {
@@ -369,6 +408,61 @@ void keyGeneration(uint64_t* keys) {
     }
 }
 
-uint32_t leftShiftRotate(uint32_t value, int round) {
+inline uint32_t leftShiftRotate(uint32_t value, int round) {
     return ((value << left_shift_table[round - 1]) | (value >> (28 - left_shift_table[round - 1]))) & 0x0FFFFFFF;
+}
+
+uint64_t DES(const uint64_t& block, uint64_t* keys) {
+    // initial permutation
+    // block_new = ??
+    // TODO: implement initial permutation
+
+    uint64_t block_new = 0;  // TODO change this line
+
+    // perform 16 rounds
+    for (int i = 0; i < 16; i++) {
+        block_new = DES_round(block_new, keys[i]);
+    }
+
+    // 32-bit swap
+    swap32Bit(block_new);
+
+    // final permutation
+    // TODO: implement final permutation
+
+    return block_new;
+}
+
+uint64_t DES_round(const uint64_t& block, const uint64_t& key) {
+    // split the 32 bits
+    uint64_t l = (block & 0xFFFFFFFF00000000) >> 32;
+    uint64_t r = (block & 0x00000000FFFFFFFF);
+
+    uint64_t l_final = r;
+
+    // right half operations
+
+    // expansion permutation
+    // TODO: implement expansion permutation
+    // r = ??
+
+    // XOR with key, both 48 bits
+    r = (r ^ key) & 0x0000FFFFFFFFFFFF;
+
+    // S-boxes, result is 32 bits
+    r = SBox(r) & 0x00000000FFFFFFFF;
+
+    // permutation
+    // TODO: implement permutation
+    // r = ??
+
+    // XOR with left half
+    r = (r ^ l) & 0x00000000FFFFFFFF;
+
+    // combine the two halves
+    return (l_final << 32) | r;
+}
+
+inline void swap32Bit(uint64_t& block) {
+    block = ((block & 0xFFFFFFFF00000000) >> 32) | ((block & 0x00000000FFFFFFFF) << 32);
 }
