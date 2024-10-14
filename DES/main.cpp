@@ -25,6 +25,10 @@ uint64_t* ciphertext;
 string output_file;
 bool is_encrypt;
 
+// DES Tables
+// left shift table, position is the (round number - 1), value is the number of bits to shift and rotate
+const int left_shift_table[16] = {1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1};
+
 // functions definitions
 /**
  * @brief Validate the arguments passed to the program.
@@ -101,6 +105,38 @@ void swapEndiannessForArray(uint64_t* arr);
  */
 bool isLittleEndian();
 
+/**
+ * @brief Process the data based on the mode of the operation.
+ *
+ * The function performs the encryption or decryption based on the mode of the operation.
+ * It uses the DES algorithm to encrypt or decrypt the data.
+ */
+void processData();
+
+/**
+ * @brief Generate all the 16 rounds 56-bit keys based on the key value (global 64 bit variable).
+ *
+ * @param keys Array of 16 64-bit integers to store the generated keys.
+ *
+ * The function generates the keys based on the key value.
+ * @note The function modifies the keys array in place.
+ * @note The size of the keys array is 16.
+ * @note The function modifies the order of keys in Decryption mode.
+ */
+void keyGeneration(uint64_t* keys);
+
+/**
+ * @brief Perform the left shift and rotate operation on a 28-bit key at a specific round based on the left shift table in DES algorithm.
+ *
+ * @param value 32-bit integer to perform the left shift and rotate operation on.
+ * @param round The round number to determine the number of bits to shift and rotate.
+ * @return 32-bit integer after performing the left shift and rotate operation.
+ *
+ * The function performs the left shift and rotate operation on a 32-bit integer.
+ * The number of bits to shift and rotate is determined by the round number.
+ */
+uint32_t leftShiftRotate(uint32_t value, int round);
+
 int main(int argc, char* argv[]) {
     // Check if the arguments are valid
     if (!validateArgs(argc, argv)) {
@@ -114,31 +150,14 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // processing
-    size_t num_blocks = file_size / 8;
-
-    if (is_encrypt) {
-        cout << "Encrypting...\n";
-    } else {
-        cout << "Decrypting...\n";
-    }
-    cout << "Key in hex: 0x" << hex << setw(16) << setfill('0') << key << endl;
-    cout << "File size: " << file_size << endl;
-
-    // encrypt or dycript each block and store it in the other array
-    // for each block in the plaintext or ciphertext array
-    for (size_t i = 0; i < num_blocks; i++) {
-        uint64_t block = is_encrypt ? plaintext[i] : ciphertext[i];
-        cout << "Block " << setw(16) << setfill('0') << i << ": " << block << endl;
-        // encrypt or decrypt the block
-        // store the result in the other array
-        if (is_encrypt) {
-            ciphertext[i] = block + key;
-            cout << "Plaintext: " << setw(16) << setfill('0') << plaintext[i] << "\nCiphertext: " << setw(16) << setfill('0') << ciphertext[i] << endl;
-        } else {
-            plaintext[i] = block - key;
-            cout << "Ciphertext: " << setw(16) << setfill('0') << ciphertext[i] << "\n Plaintext: " << setw(16) << setfill('0') << plaintext[i] << endl;
-        }
+    // Perform the encryption or decryption
+    cout << hex << std::setw(16) << std::setfill('0') << key << endl;
+    cout << endl;
+    uint64_t keys[16];
+    keyGeneration(keys);
+    // print each 64 bit key in hex
+    for (int i = 0; i < 16; i++) {
+        cout << hex << std::setw(16) << std::setfill('0') << keys[i] << endl;
     }
 
     // Write the output file
@@ -307,4 +326,49 @@ void swapEndiannessForArray(uint64_t* arr) {
 bool isLittleEndian() {
     uint16_t num = 1;
     return *(reinterpret_cast<char*>(&num)) == 1;
+}
+
+void processData() {
+    // keys generation
+    uint64_t keys[16];  // each key is a 56 bit
+}
+
+void keyGeneration(uint64_t* keys) {
+    // permutation choice 1
+    // key = ??
+    // TODO: implement permutation choice 1
+
+    // split the key into two halves
+
+    /// left half
+    uint32_t c = (key & 0x00FFFFFFF0000000) >> 28;  // left half
+    /// right half
+    uint32_t d = (key & 0x000000000FFFFFFF);  // right half
+
+    // create the whole 16 key
+    for (int i = 0; i < 16; i++) {
+        // left shift and rotate
+        c = leftShiftRotate(c, i + 1);
+        d = leftShiftRotate(d, i + 1);
+
+        // combine the two halves
+        keys[i] = ((uint64_t)c << 28) | d;
+
+        // permutation choice 2 for each key
+        // keys[i] =??
+        // TODO: implement permutation choice 2
+    }
+
+    // for decryption, reverse the order of the keys
+    if (!is_encrypt) {
+        for (int i = 0; i < 8; i++) {
+            uint64_t temp = keys[i];
+            keys[i] = keys[15 - i];
+            keys[15 - i] = temp;
+        }
+    }
+}
+
+uint32_t leftShiftRotate(uint32_t value, int round) {
+    return ((value << left_shift_table[round - 1]) | (value >> (28 - left_shift_table[round - 1]))) & 0x0FFFFFFF;
 }
