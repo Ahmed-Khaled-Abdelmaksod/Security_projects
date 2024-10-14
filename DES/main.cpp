@@ -72,24 +72,34 @@ bool openFiles(char* argv[]);
 bool writeOutputFile();
 
 /**
- * @brief Swap the endianness of a 64-bit integer  (little-endian to big-endian or vice versa).
+ * @brief Swap the endianness of a 64-bit integer  (little-endian to big-endian only).
+ *
+ * @note The function uses the GCC built-in function __builtin_bswap64 to swap the endianness of the 64-bit integer.
+ * @note The function is only used for little-endian systems, otherwise, it returns the same value.
  *
  * @param value 64-bit integer to swap its endianness.
- * @return 64-bit integer with swapped endianness.
+ * @return 64-bit integer with big endianness.
  */
-inline uint64_t swapEndiannes(uint64_t value);
+inline uint64_t swapEndianness(uint64_t value);
 
 /**
- * @brief Swap the endianness of a 64-bit integer array.
+ * @brief Swap the endianness of a 64-bit integer array, only to be used for little-endian systems.
  *
  * @param arr 64-bit integer array to swap its endianness.
  *
  * The function swaps the endianness of each element in the array.
- * It uses the swapEndianness function to swap the endianness of each element.
+ * It uses the swapEndiannesss function to swap the endianness of each element to big-endian.
  * @note The function modifies the array in place.
  * @note The size of the arr is file_size / 8.
  */
 void swapEndiannessForArray(uint64_t* arr);
+
+/**
+ * @brief Check if the system is little-endian.
+ *
+ * @return true if the system is little-endian, false otherwise.
+ */
+bool isLittleEndian();
 
 int main(int argc, char* argv[]) {
     // Check if the arguments are valid
@@ -211,7 +221,7 @@ bool openFiles(char* argv[]) {
     // input file processing
 
     file_size = input_file_stream.tellg();
-    const int num_blocks = file_size / 8;
+    size_t num_blocks = file_size / 8;
     plaintext = new uint64_t[num_blocks];
     ciphertext = new uint64_t[num_blocks];
 
@@ -237,7 +247,7 @@ bool openFiles(char* argv[]) {
     }
     key_file_stream.seekg(0, ios::beg);
     key_file_stream.read(reinterpret_cast<char*>(&key), 8);
-    key = swapEndiannes(key);
+    key = swapEndianness(key);
     key_file_stream.close();
 
     return true;
@@ -271,20 +281,30 @@ bool writeOutputFile() {
     return true;
 }
 
-inline uint64_t swapEndiannes(uint64_t value) {
-    return ((value & 0x00000000000000FFULL) << 56) |
-           ((value & 0x000000000000FF00ULL) << 40) |
-           ((value & 0x0000000000FF0000ULL) << 24) |
-           ((value & 0x00000000FF000000ULL) << 8) |
-           ((value & 0x000000FF00000000ULL) >> 8) |
-           ((value & 0x0000FF0000000000ULL) >> 24) |
-           ((value & 0x00FF000000000000ULL) >> 40) |
-           ((value & 0xFF00000000000000ULL) >> 56);
+inline uint64_t swapEndianness(uint64_t value) {
+    // return ((value & 0x00000000000000FFULL) << 56) |
+    //        ((value & 0x000000000000FF00ULL) << 40) |
+    //        ((value & 0x0000000000FF0000ULL) << 24) |
+    //        ((value & 0x00000000FF000000ULL) << 8) |
+    //        ((value & 0x000000FF00000000ULL) >> 8) |
+    //        ((value & 0x0000FF0000000000ULL) >> 24) |
+    //        ((value & 0x00FF000000000000ULL) >> 40) |
+    //        ((value & 0xFF00000000000000ULL) >> 56);
+    if (!isLittleEndian()) return value;
+
+    return __builtin_bswap64(value);  // GCC built-in function
 }
 
 void swapEndiannessForArray(uint64_t* arr) {
+    if (!isLittleEndian()) return;
+
     size_t num_blocks = file_size / 8;
     for (size_t i = 0; i < num_blocks; i++) {
-        arr[i] = swapEndiannes(arr[i]);
+        arr[i] = swapEndianness(arr[i]);
     }
+}
+
+bool isLittleEndian() {
+    uint16_t num = 1;
+    return *(reinterpret_cast<char*>(&num)) == 1;
 }
