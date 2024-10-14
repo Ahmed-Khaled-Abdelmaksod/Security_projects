@@ -1,7 +1,6 @@
 #include <stdint.h>
 
 #include <fstream>
-#include <iomanip>
 #include <iostream>
 #include <string>
 
@@ -15,17 +14,16 @@ using namespace std;
 // error message
 
 // usage message to be printed in case of invalid arguments
-const string usage_msg = "\033[31mUsage1: encrypt <plaint_text.txt> <key.txt> <cipher_tex.dat>\nUsage2: decrypt <cipher_text.dat> <key.txt> <plain_text.txt>\n\033[0m";
+const char usage_msg[] = "\033[31mUsage1: encrypt <plaint_text.txt> <key.txt> <cipher_tex.dat>\nUsage2: decrypt <cipher_text.dat> <key.txt> <plain_text.txt>\n\033[0m";
 // file not opened message
-const string file_not_opened = "\033[31mError: File not opened\n\033[0m";
+const char file_not_opened[] = "\033[31mError: File not opened\n\033[0m";
 
 // key, plaintext and ciphertext global variables
 uint64_t key;
-uint64_t* plaintext;
-streampos file_size;
-uint64_t* ciphertext;
+uint64_t* data_blocks = nullptr;
 string output_file;
 bool is_encrypt;
+size_t num_blocks;
 
 // DES Tables
 // left shift table, position is the (round number - 1), value is the number of bits to shift and rotate
@@ -39,11 +37,7 @@ const int left_shift_table[16] = {1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1
  * @param argv Array of arguments passed to the program.
  * @return true if the arguments are valid, false otherwise.
  *
- * The function checks if the number of arguments is correct (5) and if the first argument is "encrypt" or "decrypt"
- * and if the files extensions are correct.
- * Correct file extensions are:
- * - encrypt: <plaint_text.txt> <key.txt> <cipher_tex.dat>
- * - decrypt: <cipher_text.dat> <key.txt> <plain_text.txt>
+ * The function checks if the number of arguments is correct (5) and if the first argument is "encrypt" or "decrypt".
  *
  */
 bool validateArgs(int argc, char* argv[]);
@@ -105,7 +99,7 @@ void swapEndiannessForArray(uint64_t* arr);
  *
  * @return true if the system is little-endian, false otherwise.
  */
-bool isLittleEndian();
+inline bool isLittleEndian();
 
 /**
  * @brief Process the data based on the mode of the operation.
@@ -140,38 +134,24 @@ void keyGeneration(uint64_t* keys);
 inline uint32_t leftShiftRotate(uint32_t value, int round);
 
 /**
- * @brief Perform the DES algorithm on a 64-bit block using the 16 generated keys.
+ * @brief Perform the DES algorithm on a 64-bit block using the generated keys.
  *
  * @param block 64-bit block to perform the DES algorithm on.
- * @param keys Array of 16 64-bit integers (keys are only 48-bit int) to use in the DES algorithm.
+ * @param keys Array of 16 64-bit integers to use in the DES algorithm.
  * @return 64-bit block after performing the DES algorithm.
  *
- * The function performs the DES algorithm on a 64-bit block using the 16 generated keys.
- * It returns the 64-bit block after performing the DES algorithm.
- * @note If in decryption mode, the keys are already in reversed order from the generation function.
  */
-uint64_t DES(const uint64_t& block, uint64_t* keys);
+uint64_t DES(const uint64_t& block, const uint64_t* keys);
 
 /**
- * @brief Perform a single round of the DES algorithm on a 64-bit block using a 48-bit key.
+ * @brief Perform a single round of the DES algorithm on a 32-bit right half of the block.
  *
- * @param block 64-bit block to perform a single round of the DES algorithm on.
- * @param key 48-bit key to use in the DES algorithm.
- * @return 64-bit block after performing a single round of the DES algorithm.
+ * @param r 32-bit right half of the block to perform the DES round on.
+ * @param key 48-bit key to use in the DES round.
+ * @return 32-bit right half of the block after performing the DES round (right half operaions only).
  *
- * The function performs a single round of the DES algorithm on a 64-bit block using a 48-bit key.
- * It returns the 64-bit block after performing a single round of the DES algorithm.
  */
-uint64_t DES_round(const uint64_t& block, const uint64_t& key);
-
-/**
- * @brief Swap the least 32 bits with the most 32 bits of a 64-bit integer.
- *
- * @param block 64-bit integer to swap its 32 bits.
- * @note The function modifies the block in place.
- * @note The function is used to swap the 32 bits of the block after the 16 rounds of the DES algorithm.
- */
-inline void swap32Bit(uint64_t& block);
+inline uint64_t DES_round(uint64_t r, const uint64_t& key);
 
 int main(int argc, char* argv[]) {
     // Check if the arguments are valid
@@ -181,8 +161,7 @@ int main(int argc, char* argv[]) {
 
     // Open and load needed files
     if (!openFiles(argv)) {
-        if (plaintext) delete[] plaintext;
-        if (ciphertext) delete[] ciphertext;
+        delete[] data_blocks;
         return 1;
     }
 
@@ -191,8 +170,7 @@ int main(int argc, char* argv[]) {
 
     // Write the output file
     if (!writeOutputFile()) {
-        if (plaintext) delete[] plaintext;
-        if (ciphertext) delete[] ciphertext;
+        delete[] data_blocks;
         return 1;
     }
     return 0;
@@ -209,9 +187,6 @@ bool validateArgs(int argc, char* argv[]) {
 
     // Cache the arguments as strings
     string mode = argv[1];
-    string input_file = argv[2];
-    string key_file = argv[3];
-    string output_file = argv[4];
 
     // Check if the first argument is "encrypt" or "decrypt"
     if (mode != "encrypt" && mode != "decrypt") {
@@ -221,67 +196,48 @@ bool validateArgs(int argc, char* argv[]) {
         return false;  // Return immediately on error
     }
 
-    // Check file extensions based on the mode
-    if ((mode == "encrypt" && (input_file.find(".txt") == string::npos || key_file.find(".txt") == string::npos || output_file.find(".dat") == string::npos)) ||
-        (mode == "decrypt" && (input_file.find(".dat") == string::npos || key_file.find(".txt") == string::npos || output_file.find(".txt") == string::npos))) {
-#ifdef show_err
-        cerr << "\033[31mError: Invalid file extension\033[0m\n"
-             << usage_msg;
-#endif
-        return false;  // Return immediately on error
-    }
+    // mode assingment
+    is_encrypt = (mode == "encrypt");
 
     return true;  // Return true if all checks pass
 }
 
 bool openFiles(char* argv[]) {
-    // based on mode, open the files with specific types (input or output)
-    string mode = argv[1];
     string input_file = argv[2];
     string key_file = argv[3];
     output_file = argv[4];
 
-    // mode assingment
-    is_encrypt = (mode == "encrypt");
-
     // open the input file and check if it is opened
-    ifstream input_file_stream(input_file, ios::binary | ios::in | ios::ate);
+    ifstream input_file_stream(input_file, ios::binary | ios::ate);
     if (!input_file_stream.is_open()) {
 #ifdef show_err
-        cerr << file_not_opened + "Input file\n";
+        cerr << file_not_opened << "Input file\n";
 #endif
-
-        input_file_stream.close();
         return false;
     }
 
     // open the key file and check if it is opened
-    ifstream key_file_stream(key_file, ios::binary | ios::in | ios::ate);
+    ifstream key_file_stream(key_file, ios::binary | ios::ate);
     if (!key_file_stream.is_open()) {
 #ifdef show_err
-        cerr << file_not_opened + "Key file\n";
+        cerr << file_not_opened << "Key file\n";
 #endif
-
-        key_file_stream.close();
         return false;
     }
 
     // input file processing
 
-    file_size = input_file_stream.tellg();
-    size_t num_blocks = file_size / 8;
-    plaintext = new uint64_t[num_blocks];
-    ciphertext = new uint64_t[num_blocks];
+    streampos file_size = input_file_stream.tellg();
+    num_blocks = file_size / 8;
+
+    data_blocks = new uint64_t[num_blocks];
 
     input_file_stream.seekg(0, ios::beg);
-    if (is_encrypt) {
-        input_file_stream.read(reinterpret_cast<char*>(plaintext), file_size);
-        swapEndiannessForArray(plaintext);
-    } else {
-        input_file_stream.read(reinterpret_cast<char*>(ciphertext), file_size);
-        swapEndiannessForArray(ciphertext);
-    }
+    input_file_stream.read(reinterpret_cast<char*>(data_blocks), file_size);
     input_file_stream.close();
+
+    // Swap endianness if needed
+    swapEndiannessForArray(data_blocks);
 
     // key file processing
     size_t key_size = key_file_stream.tellg();
@@ -293,60 +249,55 @@ bool openFiles(char* argv[]) {
 
         return false;
     }
+
     key_file_stream.seekg(0, ios::beg);
     key_file_stream.read(reinterpret_cast<char*>(&key), 8);
-    key = swapEndianness(key);
     key_file_stream.close();
+
+    // Swap endianness if needed
+    key = swapEndianness(key);
 
     return true;
 }
 
 bool writeOutputFile() {
+    // Swap endianness back if needed
+    swapEndiannessForArray(data_blocks);
+
     // check if output file exists
-    ofstream output_file_stream = ofstream(output_file, ios::binary | ios::trunc | ios::out);
+    ofstream output_file_stream = ofstream(output_file, ios::binary | ios::trunc);
     if (!output_file_stream.is_open()) {
 #ifdef show_err
-        cerr << file_not_opened + "Output file\n";
+        cerr << file_not_opened << "Output file\n";
 #endif
-
-        output_file_stream.close();
         return false;
     }
 
-    if (is_encrypt) {
-        swapEndiannessForArray(ciphertext);
-        output_file_stream.write(reinterpret_cast<const char*>(ciphertext), file_size);
-    } else {
-        swapEndiannessForArray(plaintext);
-        output_file_stream.write(reinterpret_cast<const char*>(plaintext), file_size);
-    }
+    // write the data to the output file
+    output_file_stream.write(reinterpret_cast<char*>(data_blocks), num_blocks * 8);
     output_file_stream.close();
 
-    // Deallocate memory after successful operation
-    if (plaintext) delete[] plaintext;
-    if (ciphertext) delete[] ciphertext;
+    delete[] data_blocks;
 
     return true;
 }
 
 inline uint64_t swapEndianness(uint64_t value) {
-    // return ((value & 0x00000000000000FFULL) << 56) |
-    //        ((value & 0x000000000000FF00ULL) << 40) |
-    //        ((value & 0x0000000000FF0000ULL) << 24) |
-    //        ((value & 0x00000000FF000000ULL) << 8) |
-    //        ((value & 0x000000FF00000000ULL) >> 8) |
-    //        ((value & 0x0000FF0000000000ULL) >> 24) |
-    //        ((value & 0x00FF000000000000ULL) >> 40) |
-    //        ((value & 0xFF00000000000000ULL) >> 56);
     if (!isLittleEndian()) return value;
 
-    return __builtin_bswap64(value);  // GCC built-in function
+    return ((value & 0x00000000000000FFULL) << 56) |
+           ((value & 0x000000000000FF00ULL) << 40) |
+           ((value & 0x0000000000FF0000ULL) << 24) |
+           ((value & 0x00000000FF000000ULL) << 8) |
+           ((value & 0x000000FF00000000ULL) >> 8) |
+           ((value & 0x0000FF0000000000ULL) >> 24) |
+           ((value & 0x00FF000000000000ULL) >> 40) |
+           ((value & 0xFF00000000000000ULL) >> 56);
 }
 
 void swapEndiannessForArray(uint64_t* arr) {
     if (!isLittleEndian()) return;
 
-    size_t num_blocks = file_size / 8;
     for (size_t i = 0; i < num_blocks; i++) {
         arr[i] = swapEndianness(arr[i]);
     }
@@ -362,13 +313,8 @@ void processData() {
     uint64_t keys[16];  // each key is a 48 bit ater permutation choice 2
 
     // apply DES algorithm into each block
-    size_t num_blocks = file_size / 8;
     for (size_t i = 0; i < num_blocks; i++) {
-        if (is_encrypt) {
-            ciphertext[i] = DES(plaintext[i], keys);
-        } else {
-            plaintext[i] = DES(ciphertext[i], keys);
-        }
+        data_blocks[i] = DES(data_blocks[i], keys);
     }
 }
 
@@ -387,8 +333,8 @@ void keyGeneration(uint64_t* keys) {
     // create the whole 16 key
     for (int i = 0; i < 16; i++) {
         // left shift and rotate
-        c = leftShiftRotate(c, i + 1);
-        d = leftShiftRotate(d, i + 1);
+        c = leftShiftRotate(c, i);
+        d = leftShiftRotate(d, i);
 
         // combine the two halves
         keys[i] = ((uint64_t)c << 28) | d;
@@ -409,23 +355,29 @@ void keyGeneration(uint64_t* keys) {
 }
 
 inline uint32_t leftShiftRotate(uint32_t value, int round) {
-    return ((value << left_shift_table[round - 1]) | (value >> (28 - left_shift_table[round - 1]))) & 0x0FFFFFFF;
+    int shifts = left_shift_table[round];
+    return ((value << shifts) | (value >> (28 - shifts))) & 0x0FFFFFFF;
 }
 
-uint64_t DES(const uint64_t& block, uint64_t* keys) {
+uint64_t DES(const uint64_t& block, const uint64_t* keys) {
     // initial permutation
     // block_new = ??
     // TODO: implement initial permutation
 
     uint64_t block_new = 0;  // TODO change this line
 
+    uint32_t l = static_cast<uint32_t>(block_new >> 32);
+    uint32_t r = static_cast<uint32_t>(block_new & 0xFFFFFFFF);
+
     // perform 16 rounds
     for (int i = 0; i < 16; i++) {
-        block_new = DES_round(block_new, keys[i]);
+        uint32_t temp = r;
+        r = l ^ DES_round(r, keys[i]);
+        l = temp;
     }
 
-    // 32-bit swap
-    swap32Bit(block_new);
+    // comnine the two halves and swap them
+    block_new = ((uint64_t)r << 32) | l;
 
     // final permutation
     // TODO: implement final permutation
@@ -433,13 +385,7 @@ uint64_t DES(const uint64_t& block, uint64_t* keys) {
     return block_new;
 }
 
-uint64_t DES_round(const uint64_t& block, const uint64_t& key) {
-    // split the 32 bits
-    uint64_t l = (block & 0xFFFFFFFF00000000) >> 32;
-    uint64_t r = (block & 0x00000000FFFFFFFF);
-
-    uint64_t l_final = r;
-
+uint64_t DES_round(uint64_t r, const uint64_t& key) {
     // right half operations
 
     // expansion permutation
@@ -447,22 +393,15 @@ uint64_t DES_round(const uint64_t& block, const uint64_t& key) {
     // r = ??
 
     // XOR with key, both 48 bits
-    r = (r ^ key) & 0x0000FFFFFFFFFFFF;
+    r = (r ^ key);
 
     // S-boxes, result is 32 bits
-    r = SBox(r) & 0x00000000FFFFFFFF;
+    r = SBox(r);
 
     // permutation
     // TODO: implement permutation
     // r = ??
 
-    // XOR with left half
-    r = (r ^ l) & 0x00000000FFFFFFFF;
-
     // combine the two halves
-    return (l_final << 32) | r;
-}
-
-inline void swap32Bit(uint64_t& block) {
-    block = ((block & 0xFFFFFFFF00000000) >> 32) | ((block & 0x00000000FFFFFFFF) << 32);
+    return r;
 }
