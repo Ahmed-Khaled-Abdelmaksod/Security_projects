@@ -29,6 +29,76 @@ size_t num_blocks;
 // left shift table, position is the (round number - 1), value is the number of bits to shift and rotate
 const int left_shift_table[16] = {1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1};
 
+//permutaion choice 1 table
+const int pc_1[56] = {  57 ,49 ,41 ,33 ,25 ,17 ,9  ,
+                        1  ,58 ,50 ,42 ,34 ,26 ,18 ,
+                        10 ,2  ,59 ,51 ,43 ,35 ,27 ,
+                        19 ,11 ,3  ,60 ,52 ,44 ,36 ,
+                        63 ,55 ,47 ,39 ,31 ,23 ,15 ,
+                        7  ,62 ,54 ,46 ,38 ,30 ,22 ,
+                        14 ,6  ,61 ,53 ,45 ,37 ,29 ,
+                        21 ,13 ,5  ,28 ,20 ,12 ,4 };
+
+
+//permutation choice 2 table
+const int pc_2[48] = {  14 ,17 ,11 ,24 ,1  ,5  ,
+                        3  ,28 ,15 ,6  ,21 ,10 ,
+                        23 ,19 ,12 ,4  ,26 ,8  ,
+                        16 ,7  ,27 ,20 ,13 ,2  ,
+                        41 ,52 ,31 ,37 ,47 ,55 ,
+                        30 ,40 ,51 ,45 ,33 ,48 ,
+                        44 ,49 ,39 ,56 ,34 ,53 ,
+                        46 ,42 ,50 ,36 ,29 ,32 };              
+
+
+// intital permutation table
+const int IP_t[64] = { 	58 ,50 ,42 ,34 ,26 ,18 ,10 ,2 ,  
+                        60 ,52 ,44 ,36 ,28 ,20 ,12 ,4 ,
+                        62 ,54 ,46 ,38 ,30 ,22 ,14 ,6 ,
+                        64 ,56 ,48 ,40 ,32 ,24 ,16 ,8 ,
+                        57 ,49 ,41 ,33 ,25 ,17 ,9  ,1 ,
+                        59 ,51 ,43 ,35 ,27 ,19 ,11 ,3 ,
+                        61 ,53 ,45 ,37 ,29 ,21 ,13 ,5 ,
+                        63 ,55 ,47 ,39 ,31 ,23 ,15 ,7 };    
+
+
+//final permutation table
+const int P_1[64] = { 	40 ,8  ,48 ,16 ,56 ,24 ,64 ,32 ,
+                        39 ,7  ,47 ,15 ,55 ,23 ,63 ,31 ,
+                        38 ,6  ,46 ,14 ,54 ,22 ,62 ,30 ,
+                        37 ,5  ,45 ,13 ,53 ,21 ,61 ,29 ,
+                        36 ,4  ,44 ,12 ,52 ,20 ,60 ,28 ,
+                        35 ,3  ,43 ,11 ,51 ,19 ,59 ,27 ,
+                        34 ,2  ,42 ,10 ,50 ,18 ,58 ,26 ,
+                        33 ,1  ,41 ,9  ,49 ,17 ,57 ,25 };
+              
+
+
+ // expantion table
+const int E_t[48] = { 	32 ,1  ,2  ,3  ,4  ,5  ,
+                        4  ,5  ,6  ,7  ,8  ,9  ,
+                        8  ,9  ,10 ,11 ,12 ,13 ,
+                        12 ,13 ,14 ,15 ,16 ,17 ,
+                        16 ,17 ,18 ,19 ,20 ,21 ,
+                        20 ,21 ,22 ,23 ,24 ,25 ,
+                        24 ,25 ,26 ,27 ,28 ,29 ,
+                        28 ,29 ,30 ,31 ,32 ,1 };
+
+
+// permutation table
+const int P[32] = { 	16 ,7  ,20 ,21 ,
+                        29 ,12 ,28 ,17 ,
+                        1  ,15 ,23 ,26 ,
+                        5  ,18 ,31 ,10 ,
+                        2  ,8  ,24 ,14 ,
+                        32 ,27 ,3  ,9  ,
+                        19 ,13 ,30 ,6  ,
+                        22 ,11 ,4  ,25 };
+
+
+
+
+
 // functions definitions
 /**
  * @brief Validate the arguments passed to the program.
@@ -108,6 +178,39 @@ inline bool isLittleEndian();
  * It uses the DES algorithm to encrypt or decrypt the data.
  */
 void processData();
+
+
+/**
+ * @brief converts the input key string to into binary representation
+ * 
+ * @param inputKey 
+ * @param key 
+ */
+void convertHexKeyIntoBinary(unsigned char *inputKey, uint64_t key);
+
+
+/**
+ * @brief General permutation function for DES.
+ *
+ * @param input The input data to permute.
+ * @param table The permutation table defining the new bit order.
+ * @param table_size The number of bits to permute.
+ * @param total_bits The total number of bits in the input.
+ * @return The permuted output data.
+ */
+uint64_t permute(uint64_t input, const int* table, int table_size, int total_bits) {
+    uint64_t output = 0;
+    for(int i = 0; i < table_size; i++) {
+        output <<= 1;
+        // Extract the bit from the input based on the table
+        output |= (input >> (total_bits - table[i])) & 0x01;
+    }
+    return output;
+}
+
+
+
+
 
 /**
  * @brief Generate all the 16 rounds 56-bit keys based on the key value (global 64 bit variable).
@@ -310,7 +413,8 @@ bool isLittleEndian() {
 
 void processData() {
     // keys generation
-    uint64_t keys[16];  // each key is a 48 bit ater permutation choice 2
+    uint64_t keys[16];  // place holder variable for 16 subkeys
+    keyGeneration(keys); // each key is a 48 bit ater permutation choice 2
 
     // apply DES algorithm into each block
     for (size_t i = 0; i < num_blocks; i++) {
@@ -318,38 +422,34 @@ void processData() {
     }
 }
 
+
+
+
 void keyGeneration(uint64_t* keys) {
-    // permutation choice 1
-    // key = ??
-    // TODO: implement permutation choice 1
+    // Apply Permuted Choice 1 to the original key
+    uint64_t permuted_key = permute(key, pc_1, 56, 64);
 
-    // split the key into two halves
+    // Split the permuted key into two 28-bit halves
+    uint32_t C = (permuted_key >> 28) & 0x0FFFFFFF; // Left half
+    uint32_t D = permuted_key & 0x0FFFFFFF;         // Right half
 
-    /// left half
-    uint32_t c = (key & 0x00FFFFFFF0000000) >> 28;  // left half
-    /// right half
-    uint32_t d = (key & 0x000000000FFFFFFF);  // right half
-
-    // create the whole 16 key
+    // Generate 16 subkeys
     for (int i = 0; i < 16; i++) {
-        // left shift and rotate
-        c = leftShiftRotate(c, i);
-        d = leftShiftRotate(d, i);
+        // Perform left shifts according to the shift table
+        C = leftShiftRotate(C, i);
+        D = leftShiftRotate(D, i);
 
-        // combine the two halves
-        keys[i] = ((uint64_t)c << 28) | d;
+        // Combine C and D into a 56-bit key
+        uint64_t combined_halves = ((uint64_t)C << 28) | D;
 
-        // permutation choice 2 for each key
-        // keys[i] =??
-        // TODO: implement permutation choice 2
+        // Apply Permuted Choice 2 to get the 48-bit subkey
+        keys[i] = permute(combined_halves, pc_2, 48, 56);
     }
 
-    // for decryption, reverse the order of the keys
+    // Reverse the order of the keys for decryption
     if (!is_encrypt) {
         for (int i = 0; i < 8; i++) {
-            uint64_t temp = keys[i];
-            keys[i] = keys[15 - i];
-            keys[15 - i] = temp;
+            std::swap(keys[i], keys[15 - i]);
         }
     }
 }
@@ -363,8 +463,7 @@ uint64_t DES(const uint64_t& block, const uint64_t* keys) {
     // initial permutation
     // block_new = ??
     // TODO: implement initial permutation
-
-    uint64_t block_new = 0;  // TODO change this line
+   uint64_t block_new = permute(block, IP_t, 64, 64);
 
     uint32_t l = static_cast<uint32_t>(block_new >> 32);
     uint32_t r = static_cast<uint32_t>(block_new & 0xFFFFFFFF);
@@ -381,8 +480,10 @@ uint64_t DES(const uint64_t& block, const uint64_t* keys) {
 
     // final permutation
     // TODO: implement final permutation
+    uint64_t fp_output = permute(block_new, P_1, 64, 64);
 
-    return block_new;
+
+    return fp_output;
 }
 
 uint64_t DES_round(uint64_t r, const uint64_t& key) {
@@ -391,17 +492,20 @@ uint64_t DES_round(uint64_t r, const uint64_t& key) {
     // expansion permutation
     // TODO: implement expansion permutation
     // r = ??
+   uint64_t expanded_r = permute(static_cast<uint64_t>(r) << 32, E_t, 48, 32);
+
 
     // XOR with key, both 48 bits
-    r = (r ^ key);
+    uint64_t xor_r = (expanded_r ^ key);
 
     // S-boxes, result is 32 bits
-    r = SBox(r);
+    uint64_t sBox_output = SBox(xor_r);
 
     // permutation
     // TODO: implement permutation
     // r = ??
+    uint32_t permuted_output = static_cast<uint32_t>(permute(sBox_output, P, 32, 32));
 
     // combine the two halves
-    return r;
+    return permuted_output;
 }
