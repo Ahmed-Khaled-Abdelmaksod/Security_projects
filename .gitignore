@@ -1,4 +1,5 @@
 .vscode/tasks.json
+.vscode/
 .vscode/settings.json
 DES/input.txt
 DES/key.txt
